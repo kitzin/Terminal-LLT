@@ -1,0 +1,93 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
+import sys
+import time
+import re
+import datetime
+import urllib2
+import json
+import dateutil.parser
+
+class bcolors:
+	HEADER = '\033[95m'
+	BLUE = '\033[94m'
+	GREEN = '\033[92m'
+	WARNING = '\033[93m'
+	FAIL = '\033[91m'
+	ENDC = '\033[0m'
+	BOLD = '\033[1m'
+	UNDERLINE = '\033[4m'
+
+def load_bus_data():
+	ret = list()
+	f = open("bus-data.data", 'r')
+	lines = "".join([d.strip() for d in f.readlines()])
+	matches = re.finditer("(([A-Za-z\s,åäöÅÄÖ]+)\|([0-9]+)\|)+", lines, re.IGNORECASE)
+	for match in matches:
+		ret.append((match.group(2), match.group(3)))
+	return ret
+
+def bus_stops(bus_data, bstop_part):
+	bstop_part = bstop_part.lower()
+	ret = list()
+	for stop in bus_data:
+		if bstop_part in stop[0].lower():
+			ret.append(stop)
+	return ret
+
+
+def get_departures(bus_stop):
+	url = "http://www.llt.lulea.se/getDepartures.php?stoparea="+bus_stop
+	json_res = urllib2.urlopen(url).read()
+	departures = json.loads(json_res)
+	return departures["departures"]
+
+def extract_arguments(args):
+	ret = dict()
+	ret["default"] = []
+	nxt = False
+	param = ""
+	for arg in args:
+		if nxt:
+			ret[param] = arg
+		elif arg[0] == "-":
+			nxt = True
+			param = arg[1:]
+		else:
+			ret["default"].append(arg)
+	return ret
+
+def get_time_difference(dep_time):
+	dep_time = dep_time.replace(tzinfo=None)
+	now = datetime.datetime.now()
+	return dep_time-now
+
+bus_data = load_bus_data()
+args = sys.argv[1:]
+swg_args = extract_arguments(args)
+
+
+
+for bus_stop in swg_args["default"]:
+	stops = bus_stops(bus_data, bus_stop)
+	for stop in stops:
+		depar = get_departures(stop[1])
+		if len(depar) == 0:
+			print (bcolors.FAIL+"NO BUSES ARE LEAVING FROM %s"+bcolors.ENDC) % (stop[0],)
+			print ""
+			continue
+		print (bcolors.GREEN+"INFO FOR %s"+bcolors.ENDC) % (stop[0],)
+		for dep in depar:
+			 dep_time = dateutil.parser.parse(dep["departure"])
+			 time_diff = get_time_difference(dep_time)
+
+			 minutes = time_diff.seconds/float(60)
+			 seconds = int((minutes-int(minutes))*60)
+			 minutes = int(minutes)
+
+			 dest_j = dep["destination"].ljust(23)
+			 line_j = str(dep["line"]).ljust(3)
+ 			
+			 print (" "*3+bcolors.BLUE+line_j+bcolors.ENDC+" TO "+bcolors.BOLD+dest_j+bcolors.ENDC+" IN "+bcolors.FAIL+"%d minutes and %d seconds"+bcolors.ENDC) % (minutes, seconds)
+		print ""
